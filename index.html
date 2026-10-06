@@ -11,7 +11,6 @@
     #video, #caixas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
     #video { object-fit: fill; z-index: 1; }
     #caixas { z-index: 2; }
-    ​
 
     /* painel de estado: mostra o que está acontecendo, e os erros */
     #estado {
@@ -19,6 +18,14 @@
       background: rgba(0, 0, 0, 0.75); color: #7de3d7;
       padding: 10px 14px; border-radius: 8px; font-size: 18px;
     }
+
+    /* controle do limiar, embaixo */
+    #controle {
+      position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 10;
+      background: rgba(0, 0, 0, 0.75); color: #ffffff;
+      padding: 10px 14px; border-radius: 8px; font-size: 16px;
+    }
+    #controle input { width: 100%; }
   </style>
 </head>
 <body>
@@ -26,11 +33,16 @@
   <video id="video" autoplay playsinline muted></video>
   <canvas id="caixas"></canvas>
   <div id="estado">Carregando...</div>
+  <div id="controle">
+    Confiança mínima: <span id="valorLimiar">0.50</span>
+    <input type="range" id="limiar" min="0.10" max="0.90" step="0.05" value="0.50">
+  </div>
 
   <script type="module">
     // ================ IMPORTAÇÕES ================
     import { AutoModel, AutoProcessor, RawImage }
-        from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
+      from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
+
     // ================ ELEMENTOS DA PÁGINA ================
     const estado = document.getElementById('estado');
     const video = document.getElementById('video');
@@ -49,10 +61,17 @@
     }
     ajustarTamanho();
     window.addEventListener('resize', ajustarTamanho);
-​
+
     // cada classe ganha uma cor fixa, calculada pelo número dela
     function corDaClasse(id) { return 'hsl(' + ((id * 47) % 360) + ', 90%, 55%)'; }
-​
+
+    // ================ LIMIAR: confiança mínima ================
+    let limiar = 0.5;
+    const sliderLimiar = document.getElementById('limiar');
+    sliderLimiar.addEventListener('input', () => {
+      limiar = parseFloat(sliderLimiar.value);
+      document.getElementById('valorLimiar').textContent = limiar.toFixed(2);
+    });
 
     // ================ INICIAR: câmera e modelo ================
     const MODELO = 'onnx-community/yolov10n';
@@ -76,7 +95,7 @@
         };
         model = await AutoModel.from_pretrained(MODELO, { dtype: 'fp32', progress_callback: progresso });
         processor = await AutoProcessor.from_pretrained(MODELO);
-​
+
         estado.textContent = 'Aponte a câmera para objetos';
         detectar();
       } catch (erro) {
@@ -86,15 +105,15 @@
       }
     }
 
-        // ================ DETECTAR: roda sem parar ================
-        async function detectar() {
+    // ================ DETECTAR: roda sem parar ================
+    async function detectar() {
       try {
       if (video.readyState >= 2) {
         // 1) copia o quadro atual do vídeo para o canvas de análise
         actx.drawImage(video, 0, 0, analise.width, analise.height);
         const dados = actx.getImageData(0, 0, analise.width, analise.height);
         const imagem = new RawImage(dados.data, analise.width, analise.height, 4).rgb();
-​
+
         // 2) prepara a imagem e roda o modelo
         const { pixel_values, reshaped_input_sizes } = await processor(imagem);
         const { output0 } = await model({ images: pixel_values });
@@ -106,30 +125,30 @@
         const ex = caixas.width / largModelo;
         const ey = caixas.height / altModelo;
         ctx.clearRect(0, 0, caixas.width, caixas.height);
-​
+
         const nomes = [];
         for (const [xmin, ymin, xmax, ymax, score, id] of deteccoes) {
-          if (score < 0.5) continue;             // ignora as de baixa confiança
+          if (score < limiar) continue;          // ignora as de baixa confiança
           const nome = model.config.id2label[id];  // ex.: "cup", "person"
           nomes.push(nome + ' ' + Math.round(score * 100) + '%');
 
-        // a caixa, já convertida para a tela
-        const x = xmin * ex, y = ymin * ey;
-        const w = (xmax - xmin) * ex, h = (ymax - ymin) * ey;
-        const cor = corDaClasse(id);
-        ctx.strokeStyle = cor;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(x, y, w, h);
-​
-        // a etiqueta, com fundo colorido, em cima da caixa
-        const rotulo = nome + ' ' + Math.round(score * 100) + '%';
-        ctx.font = 'bold 16px sans-serif';
-        ctx.fillStyle = cor;
-        ctx.fillRect(x, Math.max(0, y - 22), ctx.measureText(rotulo).width + 12, 22);
-        ctx.fillStyle = '#000000';
-        ctx.fillText(rotulo, x + 6, Math.max(16, y - 6));
+          // a caixa, já convertida para a tela
+          const x = xmin * ex, y = ymin * ey;
+          const w = (xmax - xmin) * ex, h = (ymax - ymin) * ey;
+          const cor = corDaClasse(id);
+          ctx.strokeStyle = cor;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, w, h);
+
+          // a etiqueta, com fundo colorido, em cima da caixa
+          const rotulo = nome + ' ' + Math.round(score * 100) + '%';
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillStyle = cor;
+          ctx.fillRect(x, Math.max(0, y - 22), ctx.measureText(rotulo).width + 12, 22);
+          ctx.fillStyle = '#000000';
+          ctx.fillText(rotulo, x + 6, Math.max(16, y - 6));
         }
-​
+
         estado.textContent = nomes.length > 0 ? 'Vejo: ' + nomes.join(', ') : 'Aponte a câmera para objetos';
       }
       } catch (erro) {
