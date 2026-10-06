@@ -8,8 +8,10 @@
     body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
 
     /* o vídeo ocupa a tela toda; a câmera traseira não é espelhada */
-    #video { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+    #video, #caixas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
     #video { object-fit: fill; z-index: 1; }
+    #caixas { z-index: 2; }
+    ​
 
     /* painel de estado: mostra o que está acontecendo, e os erros */
     #estado {
@@ -22,6 +24,7 @@
 <body>
 
   <video id="video" autoplay playsinline muted></video>
+  <canvas id="caixas"></canvas>
   <div id="estado">Carregando...</div>
 
   <script type="module">
@@ -36,6 +39,20 @@
     // o modelo recebe uma cópia menor do quadro: menos pixels, análise mais rápida
     const analise = document.createElement('canvas');
     const actx = analise.getContext('2d', { willReadFrequently: true });
+
+    // ================ CAIXAS: a camada do desenho ================
+    const caixas = document.getElementById('caixas');
+    const ctx = caixas.getContext('2d');
+    function ajustarTamanho() {
+      caixas.width = window.innerWidth;
+      caixas.height = window.innerHeight;
+    }
+    ajustarTamanho();
+    window.addEventListener('resize', ajustarTamanho);
+​
+    // cada classe ganha uma cor fixa, calculada pelo número dela
+    function corDaClasse(id) { return 'hsl(' + ((id * 47) % 360) + ', 90%, 55%)'; }
+​
 
     // ================ INICIAR: câmera e modelo ================
     const MODELO = 'onnx-community/yolov10n';
@@ -83,12 +100,34 @@
         const { output0 } = await model({ images: pixel_values });
         // cada detecção é uma lista: [xmin, ymin, xmax, ymax, confiança, classe]
         const deteccoes = output0.tolist()[0];
+
+        // 3) escala: das medidas do modelo para os pixels da tela
+        const [altModelo, largModelo] = reshaped_input_sizes[0];
+        const ex = caixas.width / largModelo;
+        const ey = caixas.height / altModelo;
+        ctx.clearRect(0, 0, caixas.width, caixas.height);
 ​
         const nomes = [];
         for (const [xmin, ymin, xmax, ymax, score, id] of deteccoes) {
           if (score < 0.5) continue;             // ignora as de baixa confiança
           const nome = model.config.id2label[id];  // ex.: "cup", "person"
           nomes.push(nome + ' ' + Math.round(score * 100) + '%');
+
+        // a caixa, já convertida para a tela
+        const x = xmin * ex, y = ymin * ey;
+        const w = (xmax - xmin) * ex, h = (ymax - ymin) * ey;
+        const cor = corDaClasse(id);
+        ctx.strokeStyle = cor;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(x, y, w, h);
+​
+        // a etiqueta, com fundo colorido, em cima da caixa
+        const rotulo = nome + ' ' + Math.round(score * 100) + '%';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillStyle = cor;
+        ctx.fillRect(x, Math.max(0, y - 22), ctx.measureText(rotulo).width + 12, 22);
+        ctx.fillStyle = '#000000';
+        ctx.fillText(rotulo, x + 6, Math.max(16, y - 6));
         }
 ​
         estado.textContent = nomes.length > 0 ? 'Vejo: ' + nomes.join(', ') : 'Aponte a câmera para objetos';
