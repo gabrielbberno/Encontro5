@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu detector de objetos</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+
+    /* o vídeo ocupa a tela toda; a câmera traseira não é espelhada */
+    #video { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; }
+    #video { object-fit: fill; z-index: 1; }
+
+    /* painel de estado: mostra o que está acontecendo, e os erros */
+    #estado {
+      position: fixed; top: 12px; left: 12px; right: 12px; z-index: 10;
+      background: rgba(0, 0, 0, 0.75); color: #7de3d7;
+      padding: 10px 14px; border-radius: 8px; font-size: 18px;
+    }
+  </style>
+</head>
+<body>
+
+  <video id="video" autoplay playsinline muted></video>
+  <div id="estado">Carregando...</div>
+
+  <script type="module">
+    // ================ ELEMENTOS DA PÁGINA ================
+    const estado = document.getElementById('estado');
+    const video = document.getElementById('video');
+
+    // ================ INICIAR: câmera e modelo ================
+    async function iniciar() {
+      try {
+        // 1) liga a câmera traseira (no computador, usa a webcam)
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        await video.play();
+        estado.textContent = 'Câmera ligada!';
+      } catch (erro) {
+        // se algo falhar (câmera negada, sem internet), o erro aparece na tela
+        estado.textContent = 'Erro: ' + erro.message;
+        console.error(erro);
+      }
+    }
+
+    iniciar();
+  </script>
+
+</body>
+</html>
