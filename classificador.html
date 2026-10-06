@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Meu classificador</title>
+
+  <!-- as duas bibliotecas: o TensorFlow.js e a do Teachable Machine -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.5/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+    body { margin: 0; padding: 16px; background: #10131c; color: #ffffff; font-family: sans-serif; }
+    #url { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+    #carregar { margin-top: 8px; padding: 10px 16px; font-size: 16px; }
+    #estado { margin: 14px 0; color: #7de3d7; font-size: 18px; }
+
+    /* uma barra por classe */
+    .barra { margin: 8px 0; }
+    .trilho { height: 18px; background: #2b3040; border-radius: 9px; overflow: hidden; }
+    .preench { height: 100%; width: 0%; background: #4fd1c5; }
+    .barra.topo .preench { background: #ffb454; }
+  </style>
+</head>
+<body>
+
+  <input id="url" type="text" placeholder="Cole aqui o link do seu modelo (.../models/XXXX/)">
+  <button id="carregar">Carregar modelo</button>
+  <div id="estado">Cole o link e clique em Carregar.</div>
+  <div id="camera"></div>
+  <div id="barras"></div>
+
+  <script>
+    // ================ ELEMENTOS DA PÁGINA ================
+    const estado = document.getElementById('estado');
+    const inputUrl = document.getElementById('url');
+    const camera = document.getElementById('camera');
+    const barras = document.getElementById('barras');
+
+    // ================ CARREGAR: o seu modelo ================
+    let model, nomes;
+    let webcam;
+
+    async function carregar() {
+      let url = inputUrl.value.trim();
+      if (!url) { estado.textContent = 'Cole o link do modelo primeiro.'; return; }
+      if (!url.endsWith('/')) url += '/';   // o link precisa terminar em barra
+
+      estado.textContent = 'Carregando o modelo...';
+      try {
+        // o link do Teachable Machine aponta para dois arquivos: o modelo e os nomes das classes
+        model = await tmImage.load(url + 'model.json', url + 'metadata.json');
+        nomes = model.getClassLabels();
+
+        // monta uma barra para cada classe
+        barras.innerHTML = '';
+        for (const nome of nomes) {
+          barras.innerHTML +=
+            '<div class="barra"><span class="nome">' + nome + '</span> <span class="pct">0%</span>' +
+            '<div class="trilho"><div class="preench"></div></div></div>';
+        }
+        
+        // a webcam do Teachable Machine: 320 x 320, espelhada (true)
+        webcam = new tmImage.Webcam(320, 320, true);
+        await webcam.setup();
+        await webcam.play();
+        camera.appendChild(webcam.canvas);
+​
+        estado.textContent = 'Mostre um objeto para a câmera.';
+        loop();
+      } catch (erro) {
+        estado.textContent = 'Erro: ' + erro.message + '. Confira o link e a permissão da câmera.';
+        console.error(erro);
+      }
+    }
+    document.getElementById('carregar').addEventListener('click', carregar);
+
+    // ================ LOOP: classifica cada quadro ================
+    async function loop() {
+      try {
+      webcam.update();                                    // pega o quadro novo da câmera
+      const previsao = await model.predict(webcam.canvas);  // [{ className, probability }, ...]
+​
+      // acha a classe mais provável
+      let topo = 0;
+      for (let i = 1; i < previsao.length; i++) {
+        if (previsao[i].probability > previsao[topo].probability) topo = i;
+      }
+      estado.textContent = 'É: ' + previsao[topo].className + ' (' + Math.round(previsao[topo].probability * 100) + '%)';
+
+    // atualiza cada barra com a probabilidade da sua classe
+    const itens = barras.children;
+    for (let i = 0; i < previsao.length; i++) {
+        const p = previsao[i].probability;
+        itens[i].querySelector('.pct').textContent = Math.round(p * 100) + '%';
+        itens[i].querySelector('.preench').style.width = (p * 100) + '%';
+        itens[i].classList.toggle('topo', i === topo);   // a vencedora fica laranja
+      }
+      } catch (erro) {
+        estado.textContent = 'Erro: ' + erro.message;
+        console.error(erro);
+      }
+      requestAnimationFrame(loop);
+    }
+  </script>
+
+</body>
+</html>
