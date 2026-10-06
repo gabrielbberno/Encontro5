@@ -25,23 +25,80 @@
   <div id="estado">Carregando...</div>
 
   <script type="module">
+    // ================ IMPORTAÇÕES ================
+    import { AutoModel, AutoProcessor, RawImage }
+        from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3";
     // ================ ELEMENTOS DA PÁGINA ================
     const estado = document.getElementById('estado');
     const video = document.getElementById('video');
 
+    // ================ CANVAS DE ANÁLISE (escondido) ================
+    // o modelo recebe uma cópia menor do quadro: menos pixels, análise mais rápida
+    const analise = document.createElement('canvas');
+    const actx = analise.getContext('2d', { willReadFrequently: true });
+
     // ================ INICIAR: câmera e modelo ================
+    const MODELO = 'onnx-community/yolov10n';
+    let model, processor;
+
     async function iniciar() {
       try {
         // 1) liga a câmera traseira (no computador, usa a webcam)
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         video.srcObject = stream;
         await video.play();
-        estado.textContent = 'Câmera ligada!';
+
+        // o canvas de análise tem a proporção do vídeo, com no máximo 640 de largura
+        const escala = Math.min(1, 640 / video.videoWidth);
+        analise.width = Math.round(video.videoWidth * escala);
+        analise.height = Math.round(video.videoHeight * escala);
+
+        // 2) baixa o modelo e o processador (na primeira vez demora um pouco)
+        const progresso = (p) => {
+          if (p.status === 'progress') estado.textContent = 'Baixando o modelo: ' + Math.round(p.progress) + '%';
+        };
+        model = await AutoModel.from_pretrained(MODELO, { dtype: 'fp32', progress_callback: progresso });
+        processor = await AutoProcessor.from_pretrained(MODELO);
+​
+        estado.textContent = 'Aponte a câmera para objetos';
+        detectar();
       } catch (erro) {
         // se algo falhar (câmera negada, sem internet), o erro aparece na tela
         estado.textContent = 'Erro: ' + erro.message;
         console.error(erro);
       }
+    }
+
+        // ================ DETECTAR: roda sem parar ================
+        async function detectar() {
+      try {
+      if (video.readyState >= 2) {
+        // 1) copia o quadro atual do vídeo para o canvas de análise
+        actx.drawImage(video, 0, 0, analise.width, analise.height);
+        const dados = actx.getImageData(0, 0, analise.width, analise.height);
+        const imagem = new RawImage(dados.data, analise.width, analise.height, 4).rgb();
+​
+        // 2) prepara a imagem e roda o modelo
+        const { pixel_values, reshaped_input_sizes } = await processor(imagem);
+        const { output0 } = await model({ images: pixel_values });
+        // cada detecção é uma lista: [xmin, ymin, xmax, ymax, confiança, classe]
+        const deteccoes = output0.tolist()[0];
+​
+        const nomes = [];
+        for (const [xmin, ymin, xmax, ymax, score, id] of deteccoes) {
+          if (score < 0.5) continue;             // ignora as de baixa confiança
+          const nome = model.config.id2label[id];  // ex.: "cup", "person"
+          nomes.push(nome + ' ' + Math.round(score * 100) + '%');
+        }
+​
+        estado.textContent = nomes.length > 0 ? 'Vejo: ' + nomes.join(', ') : 'Aponte a câmera para objetos';
+      }
+      } catch (erro) {
+        // um erro aqui dentro aparece no painel, em vez de travar a câmera em silêncio
+        estado.textContent = 'Erro: ' + erro.message;
+        console.error(erro);
+      }
+      requestAnimationFrame(detectar);   // pede o próximo quadro
     }
 
     iniciar();
